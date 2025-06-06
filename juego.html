@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Zombie Shooter - Multi-Weapon</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.9.1/gsap.min.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Arial', sans-serif; background-color: #000; color: #fff; display: flex; align-items: center; justify-content: center; height: 100vh; }
+        #gameCanvas { display: none; }
+        #ui-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: none; flex-direction: column; justify-content: space-between; padding: 20px; box-sizing: border-box; }
+        .ui-top-left, .ui-top-right, .ui-bottom-left, .ui-bottom-right { display: flex; flex-direction: column; }
+        .ui-top-left { align-items: flex-start; }
+        .ui-top-right { align-items: flex-end; position: absolute; top: 20px; right: 20px;}
+        .ui-bottom-left { align-items: flex-start; position: absolute; bottom: 20px; left: 20px;}
+        .ui-bottom-right { align-items: flex-end; position: absolute; bottom: 20px; right: 20px;}
+        .ui-element { background-color: rgba(0, 0, 0, 0.6); padding: 10px 15px; border-radius: 8px; margin-bottom: 10px; font-size: 18px; min-width: 150px; text-align: center; }
+        #healthBar { width: 200px; height: 20px; background-color: #555; border-radius: 5px; overflow: hidden; border: 2px solid #333; }
+        #healthFill { width: 100%; height: 100%; background-color: #00ff00; transition: width 0.3s ease, background-color 0.3s ease; }
+        #blocker { position: absolute; width: 100%; height: 100%; background-color: rgba(0,0,0,0.7); display: none; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: white; z-index: 10; }
+        #instructions, #gameOverScreen { width: 80%; max-width: 500px; padding: 30px; background-color: rgba(20,20,20,0.9); border-radius: 15px; box-shadow: 0 0 20px rgba(255,255,255,0.1); }
+        #instructions h1, #gameOverScreen h1 { font-size: 2.5em; margin-bottom: 20px; color: #ff4444; }
+        #instructions p, #gameOverScreen p { font-size: 1.2em; line-height: 1.6; margin-bottom: 15px; }
+        .button { background-color: #ff4444; color: white; padding: 15px 30px; border: none; border-radius: 8px; font-size: 1.2em; cursor: pointer; transition: background-color 0.3s ease; margin-top: 20px; pointer-events: auto; }
+        .button:hover { background-color: #ff6666; }
+        #loadingScreen { position: absolute; width: 100%; height: 100%; background-color: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100; color: white; }
+        #loadingScreen h1 { font-size: 3em; margin-bottom: 20px;}
+        #loadingScreen p { font-size: 1.5em; }
+        #loadingProgress { width: 80%; max-width: 300px; height: 20px; background-color: #333; border-radius: 10px; overflow: hidden; margin-top: 20px; }
+        #loadingBar { width: 0%; height: 100%; background-color: #ff4444; transition: width 0.5s ease; }
+        .muzzle-flash { position: absolute; width: 100px; height: 100px; background: radial-gradient(circle, rgba(255,223,186,0.8) 0%, rgba(255,165,0,0.6) 30%, rgba(255,140,0,0) 70%); border-radius: 50%; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0; pointer-events: none; z-index: 5; }
+        .muzzle-flash-minigun { width: 150px; height: 150px; background: radial-gradient(circle, rgba(255,255,100,0.9) 0%, rgba(255,200,0,0.7) 30%, rgba(255,160,0,0) 70%); }
+        .muzzle-flash-rpg { width: 200px; height: 200px; background: radial-gradient(circle, rgba(255,100,50,0.9) 0%, rgba(255,50,0,0.7) 30%, rgba(200,0,0,0) 70%); }
+        #crosshair { position: absolute; top: 50%; left: 50%; width: 10px; height: 10px; border: 1px solid white; background-color: rgba(255, 255, 255, 0.3); transform: translate(-50%, -50%); border-radius: 50%; display: none; z-index: 6; }
+        .explosion-particle { position: absolute; background-color: orange; border-radius: 50%; opacity: 0.8; pointer-events: none; z-index: 7;}
+    </style>
+</head>
+<body>
+    <div id="loadingScreen"><h1>Loading Game...</h1><p id="loadingStatus">Initializing...</p><div id="loadingProgress"><div id="loadingBar"></div></div></div>
+    <div id="blocker"><div id="instructions"><h1>Zombie Apocalypse</h1><p>You are one of the last survivors...</p><p><strong>Controls:</strong><br>WASD - Move<br>Mouse - Look<br>Left Click - Shoot (Hold for Minigun)<br>R - Reload<br>Y - Switch Weapon<br>ESC - Release Mouse</p><p>Survive the waves!</p><button id="startButton" class="button">Start Game</button></div><div id="gameOverScreen" style="display: none;"><h1>Game Over</h1><p id="finalScore">Your Score: 0</p><p id="finalWave">Survived Waves: 0</p><button id="restartButton" class="button">Restart Game</button></div></div>
+    <div id="ui-container">
+        <div class="ui-top-left"><div class="ui-element">Health:</div><div id="healthBar"><div id="healthFill"></div></div></div>
+        <div class="ui-top-right"><div class="ui-element" id="score">Score: 0</div><div class="ui-element" id="wave">Wave: 1</div></div>
+        <div class="ui-bottom-left"><div class="ui-element" id="currentWeapon">Weapon: Pistol</div><div class="ui-element" id="ammo">Ammo: 12 / 60</div><div class="ui-element" id="reloadIndicator" style="display:none;">Reloading...</div></div>
+        <div class="muzzle-flash" id="muzzleFlashEffect"></div>
+        <div id="crosshair"></div>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+
+    <script type="module">
+        if (typeof THREE === 'undefined' || typeof Tone === 'undefined' || typeof gsap === 'undefined' || typeof THREE.PointerLockControls === 'undefined') {
+            console.error("A required library failed to load!");
+            document.getElementById('loadingScreen').innerHTML = "<h1>Error: Failed to load game resources. Check console.</h1>";
+        }
+
+        let scene, camera, renderer, controls;
+        let player, playerBoundingBox;
+        let zombies = [];
+        let healthPickups = [];
+        let ammoPickups = [];
+        let rockets = []; // For RPG projectiles
+
+        let score = 0, currentWave = 0, zombiesToSpawn = 0, zombiesKilledThisWave = 0;
+        let gameRunning = false, isPaused = true, audioInitialized = false;
+
+        const PLAYER_SPEED = 10.0, PLAYER_MAX_HEALTH = 100, PLAYER_HEIGHT = 1.8, PLAYER_RADIUS = 0.5;
+        let playerHealth = PLAYER_MAX_HEALTH;
+        
+        const ZOMBIE_SPEED_MIN = 0.8, ZOMBIE_SPEED_MAX = 1.5, ZOMBIE_HEALTH = 50, ZOMBIE_HEADSHOT_MULTIPLIER = 3;
+        const ZOMBIE_ATTACK_DAMAGE = 10, ZOMBIE_ATTACK_RANGE = 1.8, ZOMBIE_ATTACK_COOLDOWN = 1000;
+        const ZOMBIE_ARM_LENGTH = 0.7, ZOMBIE_ARM_RADIUS = 0.1, ZOMBIE_RADIUS = 0.4;
+        const ZOMBIE_BODY_HEIGHT = 1.5, ZOMBIE_HEAD_RADIUS = 0.3;
+
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+        let isFiringMinigun = false; // For continuous fire
+        let velocity = new THREE.Vector3(), direction = new THREE.Vector3();
+        const raycaster = new THREE.Raycaster();
+
+        const WEAPON_TYPES = { PISTOL: 'Pistol', MINIGUN: 'Minigun', RPG: 'RPG' };
+
+        const weaponManager = {
+            weapons: [
+                { name: WEAPON_TYPES.PISTOL, damage: 15, fireRate: 500, clipSize: 12, ammoInClip: 12, totalAmmo: 60, reloadTime: 1500, auto: false, spread: 0.01, muzzleFlashClass: '', soundFire: null, soundReload: null, projectileSpeed: 0, explosionRadius: 0 },
+                { name: WEAPON_TYPES.MINIGUN, damage: 8, fireRate: 100, clipSize: 100, ammoInClip: 100, totalAmmo: 300, reloadTime: 3500, auto: true, spread: 0.08, muzzleFlashClass: 'muzzle-flash-minigun', soundFire: null, soundReload: null, projectileSpeed: 0, explosionRadius: 0 },
+                { name: WEAPON_TYPES.RPG, damage: 100, fireRate: 2000, clipSize: 1, ammoInClip: 1, totalAmmo: 5, reloadTime: 3000, auto: false, spread: 0, muzzleFlashClass: 'muzzle-flash-rpg', soundFire: null, soundReload: null, projectileSpeed: 50, explosionRadius: 5 }
+            ],
+            currentWeaponIndex: 0,
+            isReloading: false,
+            lastShotTime: 0,
+
+            getCurrentWeapon: function() { return this.weapons[this.currentWeaponIndex]; },
+            switchWeapon: function() {
+                if (this.isReloading) return;
+                this.currentWeaponIndex = (this.currentWeaponIndex + 1) % this.weapons.length;
+                this.lastShotTime = 0; // Reset last shot time for fire rate
+                updateUI();
+            },
+            reloadCurrentWeapon: function() {
+                if (this.isReloading) return;
+                const weapon = this.getCurrentWeapon();
+                if (weapon.ammoInClip < weapon.clipSize && weapon.totalAmmo > 0) {
+                    this.isReloading = true;
+                    document.getElementById('reloadIndicator').style.display = 'block';
+                    
+                    if (weapon.soundReload && audioInitialized) {
+                        if (weapon.soundReload instanceof Tone.Player) {
+                            weapon.soundReload.start(Tone.now());
+                        } else if (weapon.soundReload instanceof Tone.NoiseSynth || weapon.soundReload instanceof Tone.MembraneSynth || weapon.soundReload instanceof Tone.Synth) { // Check for other synth types too
+                            weapon.soundReload.triggerAttackRelease("8n", Tone.now()); // Default duration for synth reload sounds
+                        }
+                    }
+                    
+                    setTimeout(() => {
+                        const needed = weapon.clipSize - weapon.ammoInClip;
+                        const available = Math.min(needed, weapon.totalAmmo);
+                        weapon.ammoInClip += available;
+                        weapon.totalAmmo -= available;
+                        this.isReloading = false;
+                        document.getElementById('reloadIndicator').style.display = 'none';
+                        updateUI();
+                    }, weapon.reloadTime);
+                }
+            },
+            canShoot: function() {
+                if (this.isReloading) return false;
+                const weapon = this.getCurrentWeapon();
+                if (weapon.ammoInClip <= 0) {
+                    if (!weapon.auto && !this.isReloading) this.reloadCurrentWeapon(); 
+                    return false;
+                }
+                const now = Date.now();
+                if (now - this.lastShotTime < weapon.fireRate) {
+                    return false;
+                }
+                return true;
+            },
+            addAmmo: function(weaponType, amount) {
+                const weapon = this.weapons.find(w => w.name === weaponType);
+                if (weapon) {
+                    weapon.totalAmmo += amount;
+                    console.log(`Picked up ${amount} ammo for ${weaponType}. New total: ${weapon.totalAmmo}`);
+                    updateUI();
+                }
+            }
+        };
+
+        const dom = { blocker: null, instructions: null, startButton: null, gameOverScreen: null, restartButton: null, healthFill: null, score: null, wave: null, ammo: null, currentWeapon: null, reloadIndicator: null, loadingScreen: null, loadingStatus: null, loadingBar: null, muzzleFlash: null, gameCanvas: null, uiContainer: null, crosshair: null };
+        function cacheDOMElements() {
+            dom.blocker = document.getElementById('blocker');
+            dom.instructions = document.getElementById('instructions');
+            dom.startButton = document.getElementById('startButton');
+            dom.gameOverScreen = document.getElementById('gameOverScreen');
+            dom.restartButton = document.getElementById('restartButton');
+            dom.healthFill = document.getElementById('healthFill');
+            dom.score = document.getElementById('score');
+            dom.wave = document.getElementById('wave');
+            dom.ammo = document.getElementById('ammo');
+            dom.currentWeapon = document.getElementById('currentWeapon');
+            dom.reloadIndicator = document.getElementById('reloadIndicator');
+            dom.loadingScreen = document.getElementById('loadingScreen');
+            dom.loadingStatus = document.getElementById('loadingStatus');
+            dom.loadingBar = document.getElementById('loadingBar');
+            dom.muzzleFlash = document.getElementById('muzzleFlashEffect');
+            dom.gameCanvas = document.getElementById('gameCanvas');
+            dom.uiContainer = document.getElementById('ui-container');
+            dom.crosshair = document.getElementById('crosshair');
+        }
+        
+        let zombieHitSound, playerHitSound, zombieGroanSound, healthPickupSound, backgroundMusic, explosionSound;
+
+        function defineSounds() {
+            updateLoadingProgress("Defining audio assets...", 25);
+            try {
+                // Pistol
+                weaponManager.weapons[0].soundFire = new Tone.NoiseSynth({ noise: { type: 'pink' }, envelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.05 } }).toDestination();
+                weaponManager.weapons[0].soundFire.volume.value = -12;
+                weaponManager.weapons[0].soundReload = new Tone.Player("data:audio/wav;base64,UklGRkIAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA").toDestination(); 
+
+                // Minigun
+                weaponManager.weapons[1].soundFire = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.05, sustain: 0.01, release: 0.04 } }).toDestination();
+                weaponManager.weapons[1].soundFire.volume.value = -18; 
+                weaponManager.weapons[1].soundReload = new Tone.NoiseSynth({ noise: { type: 'brown' }, envelope: { attack: 0.1, decay: 0.5, sustain: 0, release: 0.1 } }).toDestination(); 
+                weaponManager.weapons[1].soundReload.volume.value = -8;
+
+                // RPG
+                weaponManager.weapons[2].soundFire = new Tone.NoiseSynth({ noise: { type: 'brown' }, envelope: { attack: 0.01, decay: 0.3, sustain: 0.1, release: 0.2 } }).toDestination();
+                weaponManager.weapons[2].soundFire.volume.value = -5; 
+                weaponManager.weapons[2].soundReload = new Tone.NoiseSynth({ noise: { type: 'pink' }, envelope: { attack: 0.2, decay: 0.8, sustain: 0, release: 0.1 } }).toDestination(); 
+                weaponManager.weapons[2].soundReload.volume.value = -7;
+                explosionSound = new Tone.MembraneSynth({ pitchDecay: 0.2, octaves: 5, envelope: { attack: 0.01, decay: 0.8, sustain: 0, release: 0.5 } }).toDestination();
+                explosionSound.volume.value = -3;
+
+                zombieHitSound = new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 3, oscillator: { type: "sine" }, envelope: { attack: 0.001, decay: 0.2, sustain: 0.01, release: 0.2 } }).toDestination();
+                zombieHitSound.volume.value = -8;
+                playerHitSound = new Tone.MembraneSynth({ pitchDecay: 0.1, octaves: 2, oscillator: { type: "triangle" }, envelope: { attack: 0.01, decay: 0.3, sustain: 0, release: 0.1 } }).toDestination();
+                playerHitSound.volume.value = -5;
+                zombieGroanSound = new Tone.NoiseSynth({ noise: { type: 'brown' }, envelope: { attack: 0.5, decay: 1.0, sustain: 0.8, release: 0.5 } }).toDestination();
+                zombieGroanSound.volume.value = -25; 
+                healthPickupSound = new Tone.Synth({ oscillator: { type: "sine" }, envelope: { attack: 0.01, decay: 0.2, sustain: 0.1, release: 0.5 } }).toDestination();
+                healthPickupSound.volume.value = -10;
+                backgroundMusic = new Tone.Loop(time => { const synth = new Tone.AMSynth({ harmonicity: 1.5, detune: 0, oscillator: { type: "sine" }, envelope: { attack: 2, decay: 1, sustain: 1, release: 4 }, modulation: { type: "square" }, modulationEnvelope: { attack: 2, decay: 0.01, sustain: 1, release: 0.5 } }).toDestination(); synth.triggerAttackRelease("C2", "8m", time); synth.volume.value = -35; }, "8m"); 
+                Tone.Transport.bpm.value = 60; 
+                
+                console.log("Sound objects defined.");
+                updateLoadingProgress("Audio assets defined.", 50);
+            } catch (error) { console.error("Error defining sounds: ", error); updateLoadingProgress("Error defining audio.", 50); throw error; }
+        }
+
+        async function activateAudio() { 
+            if (audioInitialized) return;
+            try { await Tone.start(); console.log("Tone.js AudioContext started."); Tone.Transport.start(); backgroundMusic.start(0); audioInitialized = true;
+            } catch (error) { console.error("Failed to start Tone.js AudioContext:", error); audioInitialized = false; }
+        }
+        function updateLoadingProgress(status, percentage) { if (dom.loadingStatus) dom.loadingStatus.textContent = status; if (dom.loadingBar) dom.loadingBar.style.width = `${percentage}%`; }
+
+        function initGame() {
+            if (typeof THREE.PointerLockControls === 'undefined') {  dom.loadingScreen.innerHTML = "<h1>Critical Error: PointerLockControls missing.</h1>"; return; }
+            cacheDOMElements();
+            updateLoadingProgress("Setting up 3D scene...", 60);
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x030503); 
+            scene.fog = new THREE.Fog(0x030503, 10, 45); 
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.y = PLAYER_HEIGHT;
+            renderer = new THREE.WebGLRenderer({ canvas: dom.gameCanvas, antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+            updateLoadingProgress("Adding lights and environment...", 75);
+            const ambientLight = new THREE.AmbientLight(0x303530, 0.8); scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0x505560, 0.2); directionalLight.position.set(10, 20, 5); directionalLight.castShadow = true; /* shadow props */ scene.add(directionalLight);
+            const fireLight = new THREE.PointLight(0xff8c00, 0.9, 25, 1.8); fireLight.position.set(Math.random() * 40 - 20, 1, Math.random() * 40 - 20); fireLight.castShadow = true; scene.add(fireLight);
+            setInterval(() => { fireLight.intensity = 0.8 + Math.random() * 0.4; fireLight.position.y = 0.5 + Math.random() * 0.2; }, 200);
+            const groundGeometry = new THREE.PlaneGeometry(100, 100); const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x4a3b2a, roughness: 0.9, metalness: 0.1 }); const ground = new THREE.Mesh(groundGeometry, groundMaterial); ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+            const skyboxGeometry = new THREE.BoxGeometry(500, 500, 500); const skyboxMaterial = new THREE.MeshBasicMaterial({ color: 0x010102, side: THREE.BackSide }); const skybox = new THREE.Mesh(skyboxGeometry, skyboxMaterial); scene.add(skybox);
+            const foliageColors = [0x1a2a1a, 0x203020, 0x152515]; const trunkColors = [0x3d2b1f, 0x4a3427, 0x332211];
+            for (let i = 0; i < 60; i++) { const foliageMaterial = new THREE.MeshStandardMaterial({ color: foliageColors[Math.floor(Math.random() * foliageColors.length)], roughness: 0.95 }); const trunkMaterial = new THREE.MeshStandardMaterial({ color: trunkColors[Math.floor(Math.random() * trunkColors.length)], roughness: 0.9 }); const radius = Math.random() * 1.2 + 0.6; const height = Math.random() * 12 + 6; const foliageGeometry = new THREE.ConeGeometry(radius * 1.6, height * 0.75, 6); const foliage = new THREE.Mesh(foliageGeometry, foliageMaterial); foliage.position.set( (Math.random() - 0.5) * 90, height * 0.375 + height * 0.625, (Math.random() - 0.5) * 90 ); foliage.castShadow = true; foliage.receiveShadow = true; scene.add(foliage); const trunkGeometry = new THREE.CylinderGeometry(radius * 0.35, radius * 0.45, height * 0.75, 6); const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial); trunk.position.set(foliage.position.x, height * 0.375, foliage.position.z); trunk.castShadow = true; trunk.receiveShadow = true; scene.add(trunk); }
+
+
+            updateLoadingProgress("Preparing player...", 90);
+            player = camera; 
+            playerBoundingBox = new THREE.Box3(new THREE.Vector3(-PLAYER_RADIUS, 0, -PLAYER_RADIUS), new THREE.Vector3(PLAYER_RADIUS, PLAYER_HEIGHT, PLAYER_RADIUS));
+            controls = new THREE.PointerLockControls(camera, renderer.domElement); 
+            scene.add(controls.getObject()); 
+
+            dom.startButton.addEventListener('click', async () => { if (!audioInitialized) { await activateAudio(); } controls.lock(); });
+            dom.restartButton.addEventListener('click', () => { dom.gameOverScreen.style.display = 'none'; dom.blocker.style.display = 'flex'; dom.instructions.style.display = 'block'; resetGame(); });
+            controls.addEventListener('lock', () => { dom.instructions.style.display = 'none'; dom.gameOverScreen.style.display = 'none'; dom.blocker.style.display = 'none'; dom.crosshair.style.display = 'block'; gameRunning = true; isPaused = false; if (currentWave === 0) startNextWave(); if (audioInitialized && Tone.Transport.state !== "started") Tone.Transport.start(); });
+            controls.addEventListener('unlock', () => { if (playerHealth > 0) { dom.blocker.style.display = 'flex'; dom.instructions.style.display = 'block'; } dom.crosshair.style.display = 'none'; gameRunning = false; isPaused = true; if (audioInitialized && Tone.Transport.state === "started") Tone.Transport.pause(); });
+            document.addEventListener('keydown', onKeyDown);
+            document.addEventListener('keyup', onKeyUp);
+            window.addEventListener('mousedown', onMouseDown); 
+            window.addEventListener('mouseup', onMouseUp);   
+            window.addEventListener('click', onMouseClick);   
+            window.addEventListener('resize', onWindowResize);
+            
+            updateLoadingProgress("Game ready!", 100);
+            setTimeout(() => { dom.loadingScreen.style.display = 'none'; dom.blocker.style.display = 'flex'; dom.instructions.style.display = 'block'; dom.gameCanvas.style.display = 'block'; dom.uiContainer.style.display = 'flex'; updateUI(); }, 300);
+        }
+
+        function onWindowResize() { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
+        function onKeyDown(event) {
+            if (!gameRunning || isPaused) return;
+            switch (event.code) {
+                case 'ArrowUp': case 'KeyW': moveForward = true; break;
+                case 'ArrowLeft': case 'KeyA': moveLeft = true; break;
+                case 'ArrowDown': case 'KeyS': moveBackward = true; break;
+                case 'ArrowRight': case 'KeyD': moveRight = true; break;
+                case 'KeyR': weaponManager.reloadCurrentWeapon(); break;
+                case 'KeyY': weaponManager.switchWeapon(); break;
+            }
+        }
+        function onKeyUp(event) { 
+            switch (event.code) {
+                case 'ArrowUp': case 'KeyW': moveForward = false; break;
+                case 'ArrowLeft': case 'KeyA': moveLeft = false; break;
+                case 'ArrowDown': case 'KeyS': moveBackward = false; break;
+                case 'ArrowRight': case 'KeyD': moveRight = false; break;
+            }
+        }
+        function onMouseDown(event) {
+            if (!gameRunning || isPaused || !controls.isLocked || weaponManager.isReloading) return;
+            if (event.button === 0) { 
+                const weapon = weaponManager.getCurrentWeapon();
+                if (weapon.auto) {
+                    isFiringMinigun = true;
+                    if (weaponManager.canShoot()) { 
+                         shoot();
+                    }
+                }
+            }
+        }
+        function onMouseUp(event) {
+            if (event.button === 0) { 
+                isFiringMinigun = false;
+            }
+        }
+        function onMouseClick(event) { 
+            if (!gameRunning || isPaused || !controls.isLocked || weaponManager.isReloading) return;
+            if (event.button === 0) {
+                const weapon = weaponManager.getCurrentWeapon();
+                if (!weapon.auto) { 
+                    if (weaponManager.canShoot()) {
+                        shoot();
+                    }
+                }
+            }
+        }
+
+        function shoot() {
+            const weapon = weaponManager.getCurrentWeapon();
+             if (weapon.ammoInClip <= 0 && !weaponManager.isReloading) { 
+                weaponManager.reloadCurrentWeapon();
+                return;
+            }
+            if (!weaponManager.canShoot()) return; 
+
+
+            weaponManager.lastShotTime = Date.now();
+            weapon.ammoInClip--;
+            if (weapon.soundFire && audioInitialized) weapon.soundFire.triggerAttackRelease(weapon.name === WEAPON_TYPES.MINIGUN ? "16n" : "8n", Tone.now());
+            
+            dom.muzzleFlash.className = 'muzzle-flash ' + weapon.muzzleFlashClass;
+            dom.muzzleFlash.style.opacity = '1';
+            setTimeout(() => { dom.muzzleFlash.style.opacity = '0'; }, 60);
+
+            if (weapon.name === WEAPON_TYPES.RPG) {
+                createRocket();
+            } else { 
+                const spreadAngle = weapon.spread;
+                const direction = camera.getWorldDirection(new THREE.Vector3());
+                direction.x += (Math.random() - 0.5) * spreadAngle;
+                direction.y += (Math.random() - 0.5) * spreadAngle;
+                direction.z += (Math.random() - 0.5) * spreadAngle;
+                direction.normalize();
+                raycaster.set(camera.position, direction);
+
+                const intersects = raycaster.intersectObjects(zombies.map(z => z.mesh), true);
+                if (intersects.length > 0) {
+                    const intersectedObject = intersects[0].object;
+                    let zombieHit = null; let currentObject = intersectedObject;
+                    while(currentObject && currentObject !== scene){ const foundZombie = zombies.find(z => z.mesh === currentObject); if(foundZombie){ zombieHit = foundZombie; break; } currentObject = currentObject.parent; }
+                    if (zombieHit) {
+                        let damage = weapon.damage; let isHeadshot = false;
+                        const headObject = zombieHit.mesh.getObjectByName("zombieHead");
+                        if (headObject && (intersectedObject === headObject || intersectedObject.parent === headObject) ) { damage *= ZOMBIE_HEADSHOT_MULTIPLIER; isHeadshot = true; } 
+                        else { const hitPointLocal = zombieHit.mesh.worldToLocal(intersects[0].point.clone()); if (intersectedObject === zombieHit.mesh && hitPointLocal.y > ZOMBIE_BODY_HEIGHT * 0.2) { damage *= ZOMBIE_HEADSHOT_MULTIPLIER; isHeadshot = true; } }
+                        zombieHit.takeDamage(damage, isHeadshot);
+                        if(zombieHitSound && audioInitialized) zombieHitSound.triggerAttackRelease("C3", "8n", Tone.now());
+                    }
+                }
+            }
+            updateUI();
+            if (weapon.ammoInClip <= 0 && !weaponManager.isReloading) weaponManager.reloadCurrentWeapon();
+        }
+
+        function createRocket() {
+            const weapon = weaponManager.getCurrentWeapon();
+            const rocketGeometry = new THREE.CylinderGeometry(0.1, 0.1, 0.5, 8);
+            const rocketMaterial = new THREE.MeshPhongMaterial({ color: 0xff4500, emissive: 0xff0000 });
+            const rocketMesh = new THREE.Mesh(rocketGeometry, rocketMaterial);
+            
+            rocketMesh.position.copy(camera.position);
+            const direction = camera.getWorldDirection(new THREE.Vector3());
+            rocketMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), direction); 
+            rocketMesh.position.add(direction.clone().multiplyScalar(1.0)); 
+
+            const rocket = { 
+                mesh: rocketMesh, 
+                velocity: direction.normalize().multiplyScalar(weapon.projectileSpeed),
+                damage: weapon.damage,
+                explosionRadius: weapon.explosionRadius,
+                lifeTime: 5000, 
+                spawnTime: Date.now()
+            };
+            rockets.push(rocket);
+            scene.add(rocketMesh);
+        }
+
+        function handleRocketImpact(rocket) {
+            console.log("RPG Impact!");
+            if(explosionSound && audioInitialized) explosionSound.triggerAttackRelease("G2", "1n", Tone.now());
+
+            const explosionGeo = new THREE.SphereGeometry(0.1, 16, 16);
+            const explosionMat = new THREE.MeshBasicMaterial({ color: 0xff8c00, transparent: true, opacity: 0.8 });
+            const explosionMesh = new THREE.Mesh(explosionGeo, explosionMat);
+            explosionMesh.position.copy(rocket.mesh.position);
+            scene.add(explosionMesh);
+            gsap.to(explosionMesh.scale, { x: rocket.explosionRadius*2, y: rocket.explosionRadius*2, z: rocket.explosionRadius*2, duration: 0.3 });
+            gsap.to(explosionMesh.material, { opacity: 0, duration: 0.4, delay: 0.2, onComplete: () => scene.remove(explosionMesh) });
+
+            zombies.forEach(zombie => {
+                if (zombie.mesh && zombie.mesh.parent) { 
+                    const distance = zombie.mesh.position.distanceTo(rocket.mesh.position);
+                    if (distance <= rocket.explosionRadius) {
+                        const damageFalloff = 1 - (distance / rocket.explosionRadius); 
+                        const damageToApply = Math.max(0, rocket.damage * damageFalloff);
+                        zombie.takeDamage(damageToApply, false); 
+                    }
+                }
+            });
+            scene.remove(rocket.mesh);
+            rockets = rockets.filter(r => r !== rocket);
+        }
+        
+        function createZombie() { 
+            const zombieSkinMaterial = new THREE.MeshStandardMaterial({ color: 0x607d58, roughness: 0.9 });
+            const zombieClothesMaterial = new THREE.MeshStandardMaterial({ color: 0x3b3b3b, roughness: 0.8 });
+            const zombieBodyGeometry = new THREE.CylinderGeometry(ZOMBIE_RADIUS, ZOMBIE_RADIUS, ZOMBIE_BODY_HEIGHT, 8);
+            const zombieMesh = new THREE.Mesh(zombieBodyGeometry, zombieClothesMaterial); zombieMesh.castShadow = true;
+            const angle = Math.random() * Math.PI * 2; const distance = 20 + Math.random() * 20; 
+            zombieMesh.position.set( player.position.x + Math.cos(angle) * distance, ZOMBIE_BODY_HEIGHT / 2, player.position.z + Math.sin(angle) * distance );
+            const headGeo = new THREE.SphereGeometry(ZOMBIE_HEAD_RADIUS, 8, 8); const headMesh = new THREE.Mesh(headGeo, zombieSkinMaterial); headMesh.position.y = (ZOMBIE_BODY_HEIGHT / 2) + ZOMBIE_HEAD_RADIUS * 0.7; headMesh.name = "zombieHead"; zombieMesh.add(headMesh); 
+            const armGeometry = new THREE.CylinderGeometry(ZOMBIE_ARM_RADIUS, ZOMBIE_ARM_RADIUS * 0.8, ZOMBIE_ARM_LENGTH, 6);
+            const leftArm = new THREE.Mesh(armGeometry, zombieSkinMaterial); leftArm.position.set(-ZOMBIE_RADIUS - ZOMBIE_ARM_RADIUS * 0.5, ZOMBIE_BODY_HEIGHT * 0.3, 0); leftArm.rotation.z = Math.PI / 6; zombieMesh.add(leftArm);
+            const rightArm = new THREE.Mesh(armGeometry, zombieSkinMaterial); rightArm.position.set(ZOMBIE_RADIUS + ZOMBIE_ARM_RADIUS * 0.5, ZOMBIE_BODY_HEIGHT * 0.3, 0); rightArm.rotation.z = -Math.PI / 6; zombieMesh.add(rightArm);
+
+            const zombie = {
+                mesh: zombieMesh, health: ZOMBIE_HEALTH + currentWave * 5, speed: (ZOMBIE_SPEED_MIN + Math.random() * (ZOMBIE_SPEED_MAX - ZOMBIE_SPEED_MIN)) * (1 + currentWave * 0.05),
+                attackCooldown: ZOMBIE_ATTACK_COOLDOWN, lastAttackTime: 0, boundingBox: new THREE.Box3(), 
+                takeDamage: function(amount, isHeadshot) { this.health -= amount; if (this.health <= 0) this.die(isHeadshot); else { const oBC = this.mesh.material.color.getHex(); this.mesh.material.color.setHex(0xff0000); const h = this.mesh.getObjectByName("zombieHead"); let oHC; if(h) { oHC = h.material.color.getHex(); h.material.color.setHex(0xff0000); } setTimeout(() => { if(this.mesh&&this.mesh.material) this.mesh.material.color.setHex(oBC); if(h&&h.material)h.material.color.setHex(oHC);},100);}},
+                die: function(isHeadshot) {
+                    scene.remove(this.mesh); 
+                    zombies = zombies.filter(z => z !== this);
+                    score += isHeadshot ? 150 : 50; 
+                    zombiesKilledThisWave++;
+                    updateUI();
+
+                    if (Math.random() < 0.35) { 
+                        const weaponTypesArray = Object.values(WEAPON_TYPES);
+                        const randomWeaponType = weaponTypesArray[Math.floor(Math.random() * weaponTypesArray.length)];
+                        let amount = 0;
+                        if (randomWeaponType === WEAPON_TYPES.PISTOL) amount = 6 + Math.floor(Math.random() * 7); 
+                        else if (randomWeaponType === WEAPON_TYPES.MINIGUN) amount = 20 + Math.floor(Math.random() * 31); 
+                        else if (randomWeaponType === WEAPON_TYPES.RPG) amount = 1; 
+                        createAmmoPickup(this.mesh.position, randomWeaponType, amount);
+                    }
+                    if (Math.random() < 0.15) createHealthPickup(this.mesh.position); 
+                    if (zombiesKilledThisWave >= zombiesToSpawn && zombies.length === 0) startNextWave();
+                },
+                update: function(delta, playerPosition) { if(!this.mesh||!this.mesh.parent)return; const dTP = new THREE.Vector3().subVectors(playerPosition,this.mesh.position); dTP.y=0; dTP.normalize(); this.mesh.position.add(dTP.multiplyScalar(this.speed*delta)); this.mesh.lookAt(playerPosition.x,this.mesh.position.y,playerPosition.z); this.boundingBox.setFromObject(this.mesh,true); const dist = this.mesh.position.distanceTo(playerPosition); if(dist<ZOMBIE_ATTACK_RANGE && Date.now()-this.lastAttackTime > this.attackCooldown){ playerTakeDamage(ZOMBIE_ATTACK_DAMAGE); this.lastAttackTime = Date.now(); if(zombieGroanSound&&audioInitialized&&Math.random()<0.3)zombieGroanSound.triggerAttackRelease("4n",Tone.now()+Math.random()*0.2);}}
+            };
+            zombies.push(zombie); scene.add(zombieMesh);
+        }
+        
+        function createAmmoPickup(position, weaponType, amount) {
+            let pickupColor = 0xffff00; 
+            if (weaponType === WEAPON_TYPES.PISTOL) pickupColor = 0xcccccc; 
+            else if (weaponType === WEAPON_TYPES.MINIGUN) pickupColor = 0x00ff00; 
+            else if (weaponType === WEAPON_TYPES.RPG) pickupColor = 0xff0000; 
+
+            const pickupGeometry = new THREE.BoxGeometry(0.4, 0.4, 0.6); 
+            const pickupMaterial = new THREE.MeshPhongMaterial({ color: pickupColor, emissive: pickupColor, emissiveIntensity: 0.5, shininess: 60 });
+            const pickupMesh = new THREE.Mesh(pickupGeometry, pickupMaterial);
+            pickupMesh.position.copy(position);
+            pickupMesh.position.y = 0.3; 
+            pickupMesh.castShadow = true;
+
+            const ammoPickup = { mesh: pickupMesh, weaponType: weaponType, amount: amount, boundingBox: new THREE.Box3().setFromObject(pickupMesh) };
+            ammoPickups.push(ammoPickup);
+            scene.add(pickupMesh);
+
+            if (typeof gsap !== 'undefined') { 
+                const initialY = pickupMesh.position.y;
+                gsap.to(pickupMesh.position, { y: initialY + 0.2, duration: 0.8, yoyo: true, repeat: -1, ease: "sine.inOut" });
+                gsap.to(pickupMesh.rotation, { y: Math.PI * 2, duration: 5, repeat: -1, ease: "none" });
+            }
+        }
+
+        function createHealthPickup(position) { const pG=new THREE.BoxGeometry(0.5,0.5,0.5);const pM=new THREE.MeshPhongMaterial({color:0x00ff00,emissive:0x00cc00,shininess:80}); const pMesh=new THREE.Mesh(pG,pM); pMesh.position.copy(position); pMesh.position.y=0.5; pMesh.castShadow=true; const hP={mesh:pMesh,healthValue:25,boundingBox:new THREE.Box3().setFromObject(pMesh)}; healthPickups.push(hP); scene.add(pMesh); if(typeof gsap!=='undefined'){const iY=pMesh.position.y; gsap.to(pMesh.position,{y:iY+0.3,duration:1,yoyo:true,repeat:-1,ease:"sine.inOut"});gsap.to(pMesh.rotation,{y:Math.PI*2,duration:4,repeat:-1,ease:"none"});}}
+        function playerTakeDamage(amount) { playerHealth-=amount; if(playerHitSound&&audioInitialized)playerHitSound.triggerAttackRelease("G2","8n",Tone.now()); document.body.style.backgroundColor='rgba(255,0,0,0.3)'; setTimeout(()=>{document.body.style.backgroundColor='#000';},150); if(playerHealth<=0){playerHealth=0;gameOver();} updateUI();}
+        function startNextWave() { currentWave++; zombiesToSpawn=5+currentWave*3; zombiesKilledThisWave=0; dom.wave.textContent=`Wave: ${currentWave}`; for(let i=0;i<zombiesToSpawn;i++)setTimeout(createZombie,i*(1500/(1+currentWave*0.1)));}
+        
+        function updateUI() {
+            const weapon = weaponManager.getCurrentWeapon();
+            dom.score.textContent = `Score: ${score}`;
+            dom.currentWeapon.textContent = `Weapon: ${weapon.name}`;
+            dom.ammo.textContent = `Ammo: ${weapon.ammoInClip} / ${weapon.totalAmmo}`;
+            const healthPercentage = (playerHealth / PLAYER_MAX_HEALTH) * 100;
+            dom.healthFill.style.width = `${healthPercentage}%`;
+            if (healthPercentage < 30) dom.healthFill.style.backgroundColor = '#ff0000'; 
+            else if (healthPercentage < 60) dom.healthFill.style.backgroundColor = '#ffff00'; 
+            else dom.healthFill.style.backgroundColor = '#00ff00'; 
+            dom.reloadIndicator.style.display = weaponManager.isReloading ? 'block' : 'none';
+        }
+
+        function gameOver() { gameRunning=false;isPaused=true;controls.unlock(); dom.blocker.style.display='flex';dom.instructions.style.display='none';dom.gameOverScreen.style.display='block'; dom.crosshair.style.display='none'; document.getElementById('finalScore').textContent=`Your Score: ${score}`; document.getElementById('finalWave').textContent=`Survived Waves: ${currentWave}`; if(audioInitialized&&Tone.Transport.state==="started")Tone.Transport.stop();}
+        function resetGame() { 
+            zombies.forEach(z => scene.remove(z.mesh)); zombies = [];
+            healthPickups.forEach(p => scene.remove(p.mesh)); healthPickups = [];
+            ammoPickups.forEach(ap => scene.remove(ap.mesh)); ammoPickups = [];
+            rockets.forEach(r => scene.remove(r.mesh)); rockets = [];
+
+            playerHealth = PLAYER_MAX_HEALTH;
+            weaponManager.weapons.forEach(w => { 
+                if (w.name === WEAPON_TYPES.PISTOL) { w.ammoInClip = 12; w.totalAmmo = 60; }
+                else if (w.name === WEAPON_TYPES.MINIGUN) { w.ammoInClip = 100; w.totalAmmo = 300; }
+                else if (w.name === WEAPON_TYPES.RPG) { w.ammoInClip = 1; w.totalAmmo = 5; }
+            });
+            weaponManager.currentWeaponIndex = 0;
+            weaponManager.isReloading = false;
+            weaponManager.lastShotTime = 0;
+            isFiringMinigun = false;
+
+            if (player) { player.position.set(0, PLAYER_HEIGHT, 0); player.rotation.set(0,0,0); }
+            score = 0; currentWave = 0; zombiesKilledThisWave = 0; updateUI();
+        }
+
+        const clock = new THREE.Clock();
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+
+            if (!gameRunning || isPaused) { if (renderer && scene && camera) renderer.render(scene, camera); return; }
+
+            const currentWeapon = weaponManager.getCurrentWeapon();
+            if (currentWeapon.auto && isFiringMinigun) { 
+                if (weaponManager.canShoot()) { 
+                     shoot();
+                } else if (currentWeapon.ammoInClip <= 0 && !weaponManager.isReloading) {
+                    weaponManager.reloadCurrentWeapon(); 
+                }
+            }
+
+
+            velocity.x -= velocity.x * 10.0 * delta; velocity.z -= velocity.z * 10.0 * delta;
+            direction.z = Number(moveForward) - Number(moveBackward); direction.x = Number(moveRight) - Number(moveLeft); direction.normalize(); 
+            if (moveForward || moveBackward) velocity.z -= direction.z * PLAYER_SPEED * delta * 10; 
+            if (moveLeft || moveRight) velocity.x -= direction.x * PLAYER_SPEED * delta * 10;
+            controls.moveRight(-velocity.x * delta); controls.moveForward(-velocity.z * delta);
+            
+            const playerWorldPos = new THREE.Vector3(); player.getWorldPosition(playerWorldPos);
+            playerBoundingBox.min.set(playerWorldPos.x - PLAYER_RADIUS, playerWorldPos.y - PLAYER_HEIGHT, playerWorldPos.z - PLAYER_RADIUS);
+            playerBoundingBox.max.set(playerWorldPos.x + PLAYER_RADIUS, playerWorldPos.y, playerWorldPos.z + PLAYER_RADIUS);
+
+            zombies.forEach(zombie => zombie.update(delta, player.position));
+
+            for (let i = rockets.length - 1; i >= 0; i--) {
+                const rocket = rockets[i];
+                rocket.mesh.position.addScaledVector(rocket.velocity, delta);
+                if (rocket.mesh.position.y <= 0.1 || Date.now() - rocket.spawnTime > rocket.lifeTime) {
+                    handleRocketImpact(rocket);
+                    continue;
+                }
+                for (let j = zombies.length -1; j>=0; j--){
+                    const zombie = zombies[j];
+                    if (zombie.mesh && zombie.mesh.parent){ 
+                        const rocketBoundingSphere = new THREE.Sphere(rocket.mesh.position, 0.2); 
+                        if (zombie.boundingBox.intersectsSphere(rocketBoundingSphere)) {
+                            handleRocketImpact(rocket);
+                            break; 
+                        }
+                    }
+                }
+
+            }
+
+            for (let i = healthPickups.length - 1; i >= 0; i--) { const p=healthPickups[i]; p.boundingBox.setFromObject(p.mesh); if(playerBoundingBox.intersectsBox(p.boundingBox)){playerHealth=Math.min(PLAYER_MAX_HEALTH,playerHealth+p.healthValue); scene.remove(p.mesh); healthPickups.splice(i,1); if(healthPickupSound&&audioInitialized)healthPickupSound.triggerAttackRelease("A5","8n",Tone.now()); updateUI();}}
+            for (let i = ammoPickups.length - 1; i >= 0; i--) {
+                const pickup = ammoPickups[i];
+                pickup.boundingBox.setFromObject(pickup.mesh);
+                if (playerBoundingBox.intersectsBox(pickup.boundingBox)) {
+                    weaponManager.addAmmo(pickup.weaponType, pickup.amount);
+                    scene.remove(pickup.mesh);
+                    ammoPickups.splice(i, 1);
+                    if(healthPickupSound && audioInitialized) healthPickupSound.triggerAttackRelease("C5", "8n", Tone.now()); 
+                }
+            }
+            renderer.render(scene, camera);
+        }
+
+        window.onload = async () => {
+            updateLoadingProgress("Loading assets...", 10);
+            try {
+                if (typeof THREE === 'undefined' || typeof Tone === 'undefined' || typeof gsap === 'undefined' || typeof THREE.PointerLockControls === 'undefined') {
+                    throw new Error("Core library missing.");
+                }
+                defineSounds(); initGame(); animate();     
+            } catch (error) {
+                console.error("Initialization failed:", error);
+                updateLoadingProgress("Error loading game!", 100); 
+                if (dom.loadingBar) dom.loadingBar.style.backgroundColor = "red";
+                if (dom.loadingScreen) dom.loadingScreen.innerHTML = `<h1>Error:</h1><p>${error.message}</p><p>Check console (F12).</p>`;
+            }
+        };
+    </script>
+</body>
+</html>
